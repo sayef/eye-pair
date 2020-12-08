@@ -84,7 +84,6 @@ def main(args):
 
 	for input_path in tqdm.tqdm(glob.glob(args.input_dir + "/**/*.jpg", recursive=True)):
 		save_eye_pair(input_path, os.path.join(args.output_dir, re.sub('^' + args.input_dir, '', input_path)), method=args.method)
-		break
 
 
 # python crop_eye_pair.py --input_dir images/ --output_dir eye_pair_images/ --method mtcnn
