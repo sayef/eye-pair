@@ -6,6 +6,7 @@ import os
 import re
 import logging
 import tqdm
+from PIL import Image
 
 # global variable for mtcnn detector
 mtcnn_detector = None
@@ -16,26 +17,22 @@ eye_pair_cascade = None
 
 def get_eye_pair_mtcnn(image):
 	
-	image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-	result = mtcnn_detector.detect_faces(image_rgb)
+	bboxes, keypoints = mtcnn_detector.detect_faces(image)
+	
+	if not len(bboxes): return (False, False)
 
-	if not result: return (False, False)
-
-	bounding_box = result[0]['box']
-	keypoints = result[0]['keypoints']
-
-	left_eye = keypoints['left_eye']
-	right_eye = keypoints['right_eye']
-
+	left_eye = (keypoints[0][0], keypoints[0][5])
+	right_eye = (keypoints[0][1], keypoints[0][6])
+	
 	y_start = min(left_eye[1], right_eye[1])
 	y_end = max(left_eye[1], right_eye[1])
 
 	x_start = min(left_eye[0], right_eye[0])
 	x_end = max(left_eye[0], right_eye[0])
 
-	image = image[y_start-15:y_end+15, x_start-10:x_end+10]
+	eye_pair = image.crop((x_start-15, y_start-10, x_end+15, y_end+10))
 	
-	return (True, image)
+	return (True, eye_pair)
 	
 def get_eye_pair_opencv(image):
 	
@@ -54,15 +51,19 @@ def get_eye_pair_opencv(image):
 	return (False, False)
 
 def save_eye_pair(input_path, output_path, method='mtcnn'):
-	image = cv2.imread(input_path)
+	
 	if method == 'mtcnn':
+		image = Image.open(input_path)
 		found, pair = get_eye_pair_mtcnn(image)
+		if found:
+			os.makedirs(os.path.split(output_path)[0], exist_ok = True)
+			pair.save(output_path)
 	else:
+		image = cv2.imread(input_path)
 		found, pair = get_eye_pair_opencv(image)
-
-	if found:
-		os.makedirs(os.path.split(output_path)[0], exist_ok = True)
-		cv2.imwrite(output_path, pair)
+		if found:
+			os.makedirs(os.path.split(output_path)[0], exist_ok = True)
+			cv2.imwrite(output_path, pair)
 
 def main(args):
 
@@ -73,10 +74,8 @@ def main(args):
 
 	if args.method == 'mtcnn':
 		global mtcnn_detector
-		os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # ERROR
-		logging.getLogger('tensorflow').setLevel(logging.ERROR)
 		from mtcnn import MTCNN
-		mtcnn_detector = MTCNN()
+		mtcnn_detector = MTCNN(args.device)
 	else:
 		global face_cascade, eye_pair_cascade
 		face_cascade = cv2.CascadeClassifier('./haar-cascade/haarcascade_frontalface_default.xml') # face 
@@ -86,7 +85,7 @@ def main(args):
 		save_eye_pair(input_path, os.path.join(args.output_dir, re.sub('^' + args.input_dir, '', input_path)), method=args.method)
 
 
-# python crop_eye_pair.py --input_dir images/ --output_dir eye_pair_images/ --method mtcnn
+# python crop_eye_pair.py --input_dir images/ --output_dir eye_pair_images/ --method mtcnn --device cuda
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description='crop eye pair from face image')
 	parser.add_argument('--input_dir', default='', type=str, help='')

@@ -1,4 +1,4 @@
-## Crop eye pair from face image using HAAR cascade and/or MTCNN
+## Crop eye pair from face image using HAAR Cascade and/or MTCNN
 -------------
 
 ### How to run?
@@ -18,5 +18,5 @@ Notes: Setting device to `cuda` has no effect while using `haar-cascade` method.
 
 ## Credits
 
-1. MTCNN code borrowed from https://github.com/ipazc/mtcnn
+1. MTCNN code borrowed from https://github.com/khrlimam/mtcnn-pytorch
 2. HAAR Cascade code inspired from https://github.com/zekeriyafince/EyePair
