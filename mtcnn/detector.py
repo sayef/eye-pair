@@ -5,8 +5,7 @@ from .box_utils import nms, calibrate_box, get_image_boxes, convert_to_square
 from .first_stage import run_first_stage
 
 class MTCNN(object):
-    def __init__(self, device):
-        device = torch.device('cuda')
+    def __init__(self, device='cpu'):
         
         self.pnet = PNet(device)
         self.rnet = RNet(device)

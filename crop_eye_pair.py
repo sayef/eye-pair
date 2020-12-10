@@ -7,7 +7,7 @@ import re
 import logging
 import tqdm
 from PIL import Image
-
+from skimage.transform import SimilarityTransform
 # global variable for mtcnn detector
 mtcnn_detector = None
 
@@ -15,14 +15,58 @@ mtcnn_detector = None
 face_cascade = None
 eye_pair_cascade = None
 
+def align(img, landmarks, image_size=(112, 112)):
+	'''
+	Takes oirignial image and detected landmarks as numpy format
+	:param img: original image
+	:param landmarks: detected landmarks, [[x1, y1], [x2, y2], [x3, y3], [x4, y4], [x5, y5]]
+	:param image_size: output image_size
+	:return warped_landmarks:
+	:return warped_image:
+	'''
+	assert isinstance(img, np.ndarray)
+	assert isinstance(landmarks, np.ndarray)
+	assert landmarks.shape == (5, 2)
+
+	M = None
+	src = np.array([
+		[30.2946, 51.6963],
+		[65.5318, 51.5014],
+		[48.0252, 71.7366],
+		[33.5493, 92.3655],
+		[62.7299, 92.2041]], dtype=np.float32)
+	if image_size[1] == 112:
+		src[:, 0] += 8.0
+	dst = landmarks.astype(np.float32)
+	tform = SimilarityTransform()
+	tform.estimate(dst, src)
+	M = tform.params[0:2, :]
+	warped_image = cv2.warpAffine(img, M, image_size, borderValue=0.0)
+	warped_landmarks = cv2.perspectiveTransform(landmarks[np.newaxis, ...], tform.params[0:3, :])[0]
+	return warped_landmarks, warped_image
+
 def get_eye_pair_mtcnn(image):
 	
-	bboxes, keypoints = mtcnn_detector.detect_faces(image)
-	
-	if not len(bboxes): return (False, False)
+	bboxes_list, landmarks_list = mtcnn_detector.detect_faces(image)
 
-	left_eye = (keypoints[0][0], keypoints[0][5])
-	right_eye = (keypoints[0][1], keypoints[0][6])
+	if not len(bboxes_list): return (False, False)
+	
+	# take only first occurance
+	# and change landmarks array orientation 
+	# from [x1, x2, x3, x4, x5, y1, y2, y3, y4, y5]
+	# to [x1, y1, x2, y2, x3, y3, x4, y4, x5, y5]
+
+	bboxes, landmarks  = bboxes_list[0], np.dstack([landmarks_list[0][:5], landmarks_list[0][5:]])
+
+	# convert PIL `image` to numpy array and reshape `landmarks` to (5, 2)
+	landmarks, aligned = align(np.asarray(image), landmarks.reshape((5, 2)))
+
+	# flatten `landmarks` and convert back `aligned` to PIL image
+	landmarks, aligned = landmarks.flatten(), Image.fromarray(aligned)
+
+	width, height = aligned.size
+	left_eye = (landmarks[0], landmarks[1])
+	right_eye = (landmarks[2], landmarks[3])
 	
 	y_start = min(left_eye[1], right_eye[1])
 	y_end = max(left_eye[1], right_eye[1])
@@ -30,7 +74,7 @@ def get_eye_pair_mtcnn(image):
 	x_start = min(left_eye[0], right_eye[0])
 	x_end = max(left_eye[0], right_eye[0])
 
-	eye_pair = image.crop((x_start-15, y_start-10, x_end+15, y_end+10))
+	eye_pair = aligned.crop((x_start-width*0.20, y_start-height*0.15, x_end+width*0.20, y_end+height*0.10))
 	
 	return (True, eye_pair)
 	
@@ -51,7 +95,6 @@ def get_eye_pair_opencv(image):
 	return (False, False)
 
 def save_eye_pair(input_path, output_path, method='mtcnn'):
-	
 	if method == 'mtcnn':
 		image = Image.open(input_path)
 		found, pair = get_eye_pair_mtcnn(image)
@@ -65,13 +108,7 @@ def save_eye_pair(input_path, output_path, method='mtcnn'):
 			os.makedirs(os.path.split(output_path)[0], exist_ok = True)
 			cv2.imwrite(output_path, pair)
 
-def main(args):
-
-	if args.device == 'cuda':
-		os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-	else:
-		os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-
+def main(args, exts=('.jpg','.jpeg','.png')):
 	if args.method == 'mtcnn':
 		global mtcnn_detector
 		from mtcnn import MTCNN
@@ -81,9 +118,10 @@ def main(args):
 		face_cascade = cv2.CascadeClassifier('./haar-cascade/haarcascade_frontalface_default.xml') # face 
 		eye_pair_cascade = cv2.CascadeClassifier('./haar-cascade/haarcascades_haarcascade_mcs_eyepair_big.xml') #eye_pair
 
-	for input_path in tqdm.tqdm(glob.glob(args.input_dir + "/**/*.jpg", recursive=True)):
-		save_eye_pair(input_path, os.path.join(args.output_dir, re.sub('^' + args.input_dir, '', input_path)), method=args.method)
+	files = list(filter(lambda x: x.lower().endswith(exts), glob.glob(args.input_dir + "/**/*", recursive=True)))
 
+	for input_path in tqdm.tqdm(files):
+		save_eye_pair(input_path, os.path.join(args.output_dir, re.sub(r'^{}/'.format(args.input_dir), '', input_path)), method=args.method)
 
 # python crop_eye_pair.py --input_dir images/ --output_dir eye_pair_images/ --method mtcnn --device cuda
 if __name__ == '__main__':
